@@ -1,8 +1,35 @@
 'use strict';
 
 const STORAGE_KEY = 'hyper-quick-controls.position.v1';
+const LANGUAGE_KEY = 'hyper-quick-controls.language.v1';
+const LANGUAGES = Object.freeze(['en', 'ko']);
 const POSITIONS = Object.freeze(['top', 'bottom', 'left', 'right']);
-const POSITION_LABELS = {top: '상단', bottom: '하단', left: '왼쪽', right: '오른쪽'};
+const MESSAGES = {
+  en: {
+    toolbar: 'Hyper quick controls', settings: 'Toolbar settings',
+    settingsTitle: 'Toolbar settings · Position and language',
+    position: 'Toolbar position', language: 'Language',
+    top: 'Top', bottom: 'Bottom', left: 'Left', right: 'Right',
+    newTab: 'New tab', previousTab: 'Previous tab', nextTab: 'Next tab',
+    splitRight: 'Split right', splitDown: 'Split down',
+    previousPane: 'Previous pane', nextPane: 'Next pane',
+    broadcastOff: 'Broadcast input off',
+    broadcastOn: (count) => `Broadcast input on · ${count} ${count === 1 ? 'pane' : 'panes'}`,
+    broadcastShortcut: 'Ctrl + Alt + T: Enable for current tab\nCtrl + Alt + P: Disable',
+  },
+  ko: {
+    toolbar: 'Hyper 빠른 조작', settings: '툴바 설정',
+    settingsTitle: '툴바 설정 · 위치 및 언어 변경',
+    position: '툴바 위치', language: '언어',
+    top: '상단', bottom: '하단', left: '왼쪽', right: '오른쪽',
+    newTab: '새 탭', previousTab: '이전 탭', nextTab: '다음 탭',
+    splitRight: '좌우 분할', splitDown: '상하 분할',
+    previousPane: '이전 Pane', nextPane: '다음 Pane',
+    broadcastOff: '다중 입력 꺼짐',
+    broadcastOn: (count) => `다중 입력 켜짐 · ${count}개 Pane`,
+    broadcastShortcut: 'Ctrl + Alt + T: 현재 탭에서 켜기\nCtrl + Alt + P: 끄기',
+  },
+};
 const SIZE = 38;
 const SIDE_WIDTH = 104;
 const SHORTCUTS = Object.freeze({
@@ -30,12 +57,12 @@ const icons = {
   right: ['M3 4h18v16H3z', 'M16 4v16'],
 };
 
-function readPosition() {
+function readPreference(key, choices, fallback) {
   try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    return POSITIONS.includes(saved) ? saved : 'top';
+    const saved = window.localStorage.getItem(key);
+    return choices.includes(saved) ? saved : fallback;
   } catch (_) {
-    return 'top';
+    return fallback;
   }
 }
 
@@ -119,6 +146,14 @@ function styles(theme, position, headerHeight) {
       ${position === 'right' ? `right: ${SIDE_WIDTH + 2}px; bottom: 4px;` : ''}
     }
     .hqt-popover-title { margin: 0 0 8px; font-size: 11px; font-weight: 400; opacity: 0.6; }
+    .hqt-language { display: block; margin-top: 12px; }
+    .hqt-language-label { display: block; margin-bottom: 6px; opacity: 0.6; }
+    .hqt-language select {
+      width: 100%; padding: 6px; box-sizing: border-box; font: inherit;
+      background: var(--hqt-bg); color: var(--hqt-fg); border: 1px solid var(--hqt-border);
+      border-radius: 3px; cursor: pointer;
+    }
+    .hqt-language select:focus-visible { outline: 1px solid currentColor; outline-offset: 1px; }
     .hqt-placements { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
     .hqt-placement {
       display: flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 4px;
@@ -156,7 +191,11 @@ exports.decorateHyper = (Hyper, {React}, runAction) => {
   return class QuickControls extends React.Component {
     constructor(props) {
       super(props);
-      this.state = {position: readPosition(), settingsOpen: false};
+      this.state = {
+        position: readPreference(STORAGE_KEY, POSITIONS, 'top'),
+        language: readPreference(LANGUAGE_KEY, LANGUAGES, 'en'),
+        settingsOpen: false,
+      };
       this.onOutside = (event) => {
         if (this.state.settingsOpen && this.settingsElement && !this.settingsElement.contains(event.target)) {
           this.setState({settingsOpen: false});
@@ -168,6 +207,14 @@ exports.decorateHyper = (Hyper, {React}, runAction) => {
     componentWillUnmount() { document.removeEventListener('pointerdown', this.onOutside, true); }
 
     run(action) { runAction(action); }
+
+    t(key) { return MESSAGES[this.state.language][key]; }
+
+    setLanguage(language) {
+      if (!LANGUAGES.includes(language)) return;
+      this.setState({language});
+      try { window.localStorage.setItem(LANGUAGE_KEY, language); } catch (_) { /* Keep the setting for this window. */ }
+    }
 
     setPosition(position) {
       if (!POSITIONS.includes(position)) return;
@@ -199,41 +246,49 @@ exports.decorateHyper = (Hyper, {React}, runAction) => {
         },
       },
       h('button', {
-        type: 'button', className: 'hqt-button', title: '툴바 설정 · 위치 변경',
-        'aria-label': '툴바 설정', 'aria-expanded': this.state.settingsOpen,
+        type: 'button', className: 'hqt-button', title: this.t('settingsTitle'),
+        'aria-label': this.t('settings'), 'aria-expanded': this.state.settingsOpen,
         ref: (element) => { this.settingsButton = element; },
         onClick: () => this.setState((state) => ({settingsOpen: !state.settingsOpen})),
       }, icon('settings')),
       this.state.settingsOpen ? h('div', {className: 'hqt-popover'},
-        h('div', {className: 'hqt-popover-title'}, '툴바 위치'),
-        h('div', {className: 'hqt-placements', role: 'group', 'aria-label': '툴바 위치'},
+        h('div', {className: 'hqt-popover-title'}, this.t('position')),
+        h('div', {className: 'hqt-placements', role: 'group', 'aria-label': this.t('position')},
           ...POSITIONS.map((position) => h('button', {
             type: 'button', className: 'hqt-placement', key: position,
             'aria-pressed': position === this.state.position,
             // Use independent toggle buttons: Tab/Enter work without overriding Hyper arrow shortcuts.
             'data-selected': position === this.state.position,
             onClick: () => this.setPosition(position),
-          }, icon(position), POSITION_LABELS[position])))) : null);
+          }, icon(position), this.t(position)))),
+        h('label', {className: 'hqt-language'},
+          h('span', {className: 'hqt-language-label'}, this.t('language')),
+          h('select', {
+            value: this.state.language, 'aria-label': this.t('language'),
+            onChange: (event) => this.setLanguage(event.target.value),
+          }, h('option', {value: 'en', lang: 'en'}, 'English'),
+          h('option', {value: 'ko', lang: 'ko'}, '한국어')))) : null);
     }
 
     render() {
       const count = this.props.quickControlsTargetCount || 0;
       const {position} = this.state;
       const toolbar = h('aside', {
-        className: 'hqt-toolbar', 'data-position': position, 'aria-label': 'Hyper 빠른 조작',
+        className: 'hqt-toolbar', 'data-position': position,
+        lang: this.state.language, 'aria-label': this.t('toolbar'),
       },
       h('div', {className: 'hqt-track'},
         h('section', {className: 'hqt-group', 'aria-label': 'hyper'},
-          this.button('newTab', '새 탭', 'Ctrl + Shift + T'),
-          this.button('previousTab', '이전 탭', 'Ctrl + Shift + Tab'),
-          this.button('nextTab', '다음 탭', 'Ctrl + Tab')),
+          this.button('newTab', this.t('newTab'), 'Ctrl + Shift + T'),
+          this.button('previousTab', this.t('previousTab'), 'Ctrl + Shift + Tab'),
+          this.button('nextTab', this.t('nextTab'), 'Ctrl + Tab')),
         h('section', {className: 'hqt-group', 'aria-label': 'hyper-controll'},
-          this.button('splitRight', '좌우 분할', 'Ctrl + Shift + D'),
-          this.button('splitDown', '상하 분할', 'Ctrl + Shift + E'),
-          this.button('previousPane', '이전 Pane', 'Ctrl + Page Down'),
-          this.button('nextPane', '다음 Pane', 'Ctrl + Page Up'),
-          this.button('broadcastToggle', `다중 입력 ${count > 0 ? `켜짐 · ${count}개 Pane` : '꺼짐'}`,
-            'Ctrl + Alt + T: 현재 탭에서 켜기\nCtrl + Alt + P: 끄기', count > 0))),
+          this.button('splitRight', this.t('splitRight'), 'Ctrl + Shift + D'),
+          this.button('splitDown', this.t('splitDown'), 'Ctrl + Shift + E'),
+          this.button('previousPane', this.t('previousPane'), 'Ctrl + Page Down'),
+          this.button('nextPane', this.t('nextPane'), 'Ctrl + Page Up'),
+          this.button('broadcastToggle', count > 0 ? this.t('broadcastOn')(count) : this.t('broadcastOff'),
+            this.t('broadcastShortcut'), count > 0))),
       this.settings());
 
       return h(Hyper, Object.assign({}, this.props, {

@@ -3,15 +3,13 @@
 A compact, dockable toolbar for [Hyper](https://hyper.is): tabs, pane splits,
 navigation and broadcast input, with visible keyboard shortcut hints.
 
-Hyper에서 탭·분할·다중 입력을 클릭으로 조작하는 작은 툴바입니다.
-상단·하단·왼쪽·오른쪽 배치를 선택하고 저장할 수 있습니다.
-
 ## Features
 
 - New tab, previous/next tab, left/right and top/bottom splits, previous/next pane.
 - Icons plus compact shortcut labels. Hover to see the complete action description.
 - A single broadcast toggle, with an indicator and target count in the tooltip.
 - A settings button to dock the toolbar on any of the four edges.
+- English by default, with an English / 한국어 language selector in settings.
 - Local position persistence and reserved terminal space to avoid covering output.
 - Colors follow the Hyper background, foreground and border settings.
 - Keeps the hyper-scripts selector below a top-docked toolbar when that plugin is installed.
@@ -21,7 +19,7 @@ Hyper에서 탭·분할·다중 입력을 클릭으로 조작하는 작은 툴�
 
 Tested interactively on **Windows with Hyper 3.4.1**. Broadcast integration was
 tested with **hyper-broadcast 2.0.0**. macOS and Linux have not been verified.
-The UI currently uses Korean action labels and **Windows default shortcuts**.
+The UI defaults to English and supports Korean, with **Windows default shortcuts**.
 Shortcut hints are informational; they do not reflect custom Hyper keymaps.
 
 The plugin uses Hyper's internal command/event names and CSS selectors, so newer
@@ -81,13 +79,21 @@ Tab and pane commands do not require it. hyper-scripts and hyper-pane are option
 
 ## Toolbar placement
 
-Click the settings icon and choose **상단** (top), **하단** (bottom),
-**왼쪽** (left) or **오른쪽** (right). The default is top.
+Click the settings icon and choose **Top**, **Bottom**, **Left** or **Right**.
+The default is top.
 The selection is stored locally and restored on reload.
 
 Horizontal toolbars show the icon next to its shortcut. Vertical toolbars put
 the shortcut below the icon. Shift is written as `Shift`; Page Up/Down are
 shortened to `Pg↑`/`Pg↓`. Hover for the full description and shortcut.
+
+## Language
+
+The default language is **English**. Open the settings icon and use the
+**Language** selector to choose **English** or **한국어**.
+Tooltips, accessible labels, broadcast status and settings labels update immediately.
+The choice is saved locally, independently of toolbar placement, and restored on reload.
+Keyboard shortcut labels remain in English. No translation service or network access is required.
 
 ## Uninstall
 
@@ -103,7 +109,7 @@ npm test
 ```
 
 Tests cover command dispatch, broadcast state decisions, toolbar placement,
-position persistence, invalid storage and preservation of other plugin children.
+position/language persistence, language switching, invalid storage and preservation of other plugin children.
 They run without a local Hyper installation. Real Hyper integration and visual
 layout should also be checked when changing event names or CSS selectors.
 

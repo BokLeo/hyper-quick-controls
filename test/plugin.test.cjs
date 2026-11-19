@@ -86,11 +86,15 @@ test('each docking edge persists and reserves space for the terminal', () => {
 test('invalid or unavailable storage keeps the toolbar usable', () => {
   const f = setup();
   f.saved.set('hyper-quick-controls.position.v1', 'invalid');
+  f.saved.set('hyper-quick-controls.language.v1', 'invalid');
   assert.equal(new f.Panel({}).state.position, 'top');
+  assert.equal(new f.Panel({}).state.language, 'en');
   window.localStorage = {getItem() { throw Error('unavailable'); }, setItem() { throw Error('unavailable'); }};
   const panel = new f.Panel({});
   panel.setPosition('right');
+  panel.setLanguage('ko');
   assert.equal(panel.state.position, 'right');
+  assert.equal(panel.state.language, 'ko');
   panel.setPosition('invalid');
   assert.equal(panel.state.position, 'right');
 });
@@ -107,6 +111,42 @@ test('toolbar preserves existing plugin content and exposes live broadcast state
   assert.deepEqual(groups.map((group) => group.props['aria-label']), ['hyper', 'hyper-controll']);
   const toggle = groups[1].children.find((child) => child.props.role === 'switch');
   assert.equal(toggle.props['aria-checked'], true);
-  assert.match(toggle.props.title, /1개 Pane/);
+  assert.match(toggle.props.title, /Broadcast input on · 1 pane/);
   assert.equal(toggle.children[1].children[0], 'Ctrl Alt P');
+});
+
+test('English is the default and the settings selector updates all UI labels immediately', () => {
+  const f = setup();
+  const panel = new f.Panel({quickControlsTargetCount: 2});
+  const toolbar = () => panel.render().props.customChildren.children[2];
+  const newTab = () => toolbar().children[0].children[0].children[0];
+  const broadcast = () => toolbar().children[0].children[1].children[4];
+  assert.equal(panel.state.language, 'en');
+  assert.equal(newTab().props.title, 'New tab\nCtrl + Shift + T');
+  assert.match(broadcast().props.title, /2 panes/);
+  panel.state.settingsOpen = true;
+  const languageSelect = panel.settings().children[1].children[2].children[1];
+  assert.equal(languageSelect.props['aria-label'], 'Language');
+  languageSelect.props.onChange({target: {value: 'ko'}});
+  assert.equal(newTab().props.title, '새 탭\nCtrl + Shift + T');
+  assert.match(broadcast().props.title, /2개 Pane/);
+  assert.equal(toolbar().props.lang, 'ko');
+  assert.equal(panel.settings().children[0].props['aria-label'], '툴바 설정');
+  assert.equal(panel.state.settingsOpen, true);
+  assert.deepEqual(f.sent, []);
+  panel.setLanguage('en');
+  assert.equal(newTab().props.title, 'New tab\nCtrl + Shift + T');
+});
+
+test('language preference persists separately from docking and rejects unsupported values', () => {
+  const f = setup();
+  const panel = new f.Panel({});
+  panel.setPosition('right');
+  panel.setLanguage('ko');
+  const restored = new f.Panel({});
+  assert.equal(restored.state.language, 'ko');
+  assert.equal(restored.state.position, 'right');
+  restored.setLanguage('unsupported');
+  assert.equal(restored.state.language, 'ko');
+  assert.equal(f.saved.get('hyper-quick-controls.language.v1'), 'ko');
 });
