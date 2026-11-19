@@ -1,0 +1,10 @@
+node_modules/
+coverage/
+*.log
+*.backup-*
+installer-*/
+.hyper.js
+.env
+.env.*
+.DS_Store
+Thumbs.db
