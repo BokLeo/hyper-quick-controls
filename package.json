@@ -1,7 +1,7 @@
 {
   "name": "hyper-quick-controls",
   "version": "1.0.0",
-  "description": "A compact, dockable toolbar for Hyper tabs, pane splits and broadcast input.",
+  "description": "A compact, dockable toolbar for Hyper tabs, pane splits, broadcast input, command favorites, and customizable shortcuts.",
   "private": true,
   "main": "index.js",
   "author": "BokLeo",
@@ -13,6 +13,6 @@
   "homepage": "https://github.com/BokLeo/hyper-quick-controls#readme",
   "bugs": { "url": "https://github.com/BokLeo/hyper-quick-controls/issues" },
   "keywords": ["hyper", "hyper-plugin", "terminal", "toolbar", "panes"],
-  "files": ["index.js", "toolbar.js", "install.ps1", "LICENSE", "README.md", "ACKNOWLEDGEMENTS.md"],
+  "files": ["index.js", "favorites.js", "shortcuts.js", "toolbar.js", "install.ps1", "LICENSE", "README.md", "ACKNOWLEDGEMENTS.md"],
   "scripts": { "test": "node --test --test-isolation=none test/plugin.test.cjs" }
 }

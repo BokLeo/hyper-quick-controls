@@ -1,16 +1,18 @@
 # Hyper Quick Controls
 
 A compact, dockable toolbar for [Hyper](https://hyper.is): tabs, pane splits,
-navigation and broadcast input, with visible keyboard shortcut hints.
+navigation, broadcast input, keyboard-triggered command favorites, and customizable
+toolbar shortcuts and button order.
 
 ## Features
 
 - New tab, previous/next tab, left/right and top/bottom splits, previous/next pane.
-- Icons plus compact shortcut labels. Hover to see the complete action description.
+- Icons plus vivid, customizable shortcut labels (`#3AEED9` default, `12px` default). Hover to see the complete action description.
 - A single broadcast toggle, with an indicator and target count in the tooltip.
-- A settings button to dock the toolbar on any of the four edges.
-- English by default, with an English / 한국어 language selector in settings.
-- Local position persistence and reserved terminal space to avoid covering output.
+- Keyboard-triggered **command favorites** palette (shortcut unset by default): navigate with `Up`/`Down`, insert onto the prompt line without executing with `Enter`, and close with `Esc` or the same shortcut while restoring focus to the original terminal.
+- A settings button to dock the toolbar on any of the four edges, switch between English and 한국어, pick a custom shortcut text color (or reset to `#3AEED9`), adjust shortcut text size (`−`/`+`, `10px–16px`, default `12px`), and open the **Keyboard shortcuts** modal.
+- Full shortcut customization for all toolbar actions with conflict detection, plus drag-and-drop and keyboard (`↑`/`↓`) reordering synchronized between the toolbar and the shortcuts modal.
+- Local preference persistence and reserved terminal space to avoid covering output.
 - Colors follow the Hyper background, foreground and border settings.
 - Keeps the hyper-scripts selector below a top-docked toolbar when that plugin is installed.
 - No build step and no additional npm runtime dependencies in this plugin.
@@ -20,7 +22,8 @@ navigation and broadcast input, with visible keyboard shortcut hints.
 Tested interactively on **Windows with Hyper 3.4.1**. Broadcast integration was
 tested with **hyper-broadcast 2.0.0**. macOS and Linux have not been verified.
 The UI defaults to English and supports Korean, with **Windows default shortcuts**.
-Shortcut hints are informational; they do not reflect custom Hyper keymaps.
+Default shortcut hints reflect Windows Hyper defaults unless customized in the
+**Keyboard shortcuts** modal (they do not automatically mirror custom `.hyper.js` `keymaps`).
 
 The plugin uses Hyper's internal command/event names and CSS selectors, so newer
 Hyper or third-party plugin versions may require compatibility updates.
@@ -42,14 +45,14 @@ The package remains private to prevent accidental npm publishing.
    restart Hyper after finishing that work.
 
 The installer locates `%APPDATA%\Hyper\.hyper.js`, creates timestamped backups,
-copies the plugin into `.hyper_plugins\local\hyper-quick-controls`, and adds
+copies the plugin files into `.hyper_plugins\local\hyper-quick-controls`, and adds
 `"hyper-quick-controls"` to `localPlugins`. It preserves other settings and does
 not install third-party plugins. It refuses unfamiliar `localPlugins` syntax
 rather than rewriting the entire configuration.
 
 ### Manual installation
 
-Copy `index.js`, `toolbar.js`, `package.json`, `LICENSE` and this README into:
+Copy `index.js`, `favorites.js`, `shortcuts.js`, `toolbar.js`, `package.json`, `LICENSE`, `ACKNOWLEDGEMENTS.md` and this README into:
 
 ```text
 %APPDATA%\Hyper\.hyper_plugins\local\hyper-quick-controls\
@@ -77,21 +80,67 @@ Tab and pane commands do not require it. hyper-scripts and hyper-pane are option
 - Turning off clears broadcast targets across all tabs.
 - The icon's background and dot show the enabled state; hover to see the target count.
 
-## Toolbar placement
+## Command favorites
 
-Click the settings icon and choose **Top**, **Bottom**, **Left** or **Right**.
-The default is top.
-The selection is stored locally and restored on reload.
+Configure favorite commands and an optional keyboard shortcut in `.hyper.js` under `config.quickControls` (you can also set, change, or unset the shortcut in the **Keyboard shortcuts** modal):
+
+```js
+module.exports = {
+  config: {
+    quickControls: {
+      favoritesShortcut: 'Ctrl+Alt+K', // Unset by default
+      favorites: [
+        { label: 'Git status', command: 'git status' },
+        'npm test',
+      ],
+    },
+  },
+};
+```
+
+- **Unset by default**: No key opens the favorites palette until you configure a shortcut.
+- **Toolbar button & shortcut badge**: The toolbar includes a **Command favorites** button showing the configured shortcut (or `Favorites` / `즐겨찾기` when unset). Clicking the button toggles the same palette while preserving terminal focus.
+- **Keyboard flow**: Press your configured shortcut (or click the toolbar button) to open the palette; press `Up`/`Down` to navigate, `Enter` to insert the selected command, or `Esc` / the same shortcut / the toolbar button to close and restore focus to the original terminal.
+- **Target consistency & no duplicate broadcast**: The palette header shows the live target mode and count (`Active pane · 1` when broadcast is off, or `Broadcast · N panes` using live sessions in `sessions.broadcast` when on). On `Enter`, text is sent directly via `window.rpc.emit('data', { uid, data })` once per live target instead of `SESSION_USER_DATA`, preventing `hyper-broadcast` middleware from duplicating input.
+- **Insert-only safety**: Newlines (`\r`, `\n`, Unicode line/paragraph separators) and executable control characters (`0x00–0x1F`, `0x7F–0x9F`) are blocked, and the `Enter` key itself (including held auto-repeats until `keyup`) is intercepted so commands are inserted onto the prompt line without executing.
+- **No hover interference**: There is no right-edge mouse hover trigger, and normal terminal drag selection and copy behavior remain untouched.
+
+## Keyboard shortcuts & button order
+
+Open the toolbar settings popover and click **Shortcut settings…** (`단축키 설정…`) to customize shortcuts and reorder buttons for all actions provided by `hyper-quick-controls`:
+
+- Tabs: **New tab**, **Previous tab**, **Next tab**
+- Panes: **Split right**, **Split down**, **Previous pane**, **Next pane**
+- Broadcast: **Broadcast on (current tab)** and **Broadcast off** (grouped together as one toolbar item)
+- **Command favorites** (unset by default)
+
+### Behavior, conflict prevention & scope
+
+- **Live execution & toolbar sync**: Custom bindings are saved in `localStorage` (`hyper-quick-controls.shortcuts.v1`, automatically migrating any prior `hyper-quick-controls.favoritesShortcut.v1` entry), update the toolbar shortcut labels immediately, and trigger the corresponding Hyper / `hyper-broadcast` / favorites action directly.
+- **No duplicate execution**: Default bindings for built-in Hyper and `hyper-broadcast` commands are **not** re-dispatched by this plugin's renderer listener; only custom overrides and `favoritesToggle` are handled in the renderer.
+- **Conflict blocking**: Assigning a shortcut already used by another `hyper-quick-controls` action, a built-in Hyper shortcut (e.g., `Ctrl+Shift+C`, `Ctrl+Shift+K`, `Ctrl+Shift+T`), a `hyper-broadcast` default (`Ctrl+Alt+T`, `Ctrl+Alt+P`, `Ctrl+Alt+A`, `Ctrl+Alt+B`), or a bare key without modifiers is blocked with an inline alert.
+- **Scope note**: Hyper's own built-in keymaps and `hyper-broadcast`'s menu accelerators remain active in Hyper for their original default key combinations unless you also change them in `.hyper.js` (`keymaps`). `hyper-quick-controls` does not hijack unrelated Hyper commands.
+- **Drag-and-drop & modal reordering**: Drag toolbar buttons directly (horizontal or vertical docking) or reorder items in the **Keyboard shortcuts** modal via drag-and-drop or keyboard `↑`/`↓` buttons. Broadcast on/off stay grouped together as one item so toolbar and modal order always match. Order is saved in `localStorage` (`hyper-quick-controls.order.v1`) and can be restored via **Reset order** without erasing custom shortcuts or affecting terminal drag selection and copy.
+- **Safe recording**: While recording a shortcut or while the modal is open, `Esc` cancels recording (or closes the modal and restores focus), and keys are prevented from leaking into the terminal.
+
+## Toolbar placement & appearance
+
+Click the settings icon to configure:
+
+- **Toolbar position**: **Top** (default), **Bottom**, **Left**, or **Right**.
+- **Shortcut text color**: Default `#3AEED9`, custom color picker, and **Reset** (`기본값 복원`).
+- **Shortcut text size**: `−` / `+` stepper buttons (`10px–16px`, default `12px`). Vertical docking width and button height expand automatically to prevent clipping without altering the terminal body font.
 
 Horizontal toolbars show the icon next to its shortcut. Vertical toolbars put
 the shortcut below the icon. Shift is written as `Shift`; Page Up/Down are
-shortened to `Pg↑`/`Pg↓`. Hover for the full description and shortcut.
+shortened to `Pg↑`/`Pg↓`. Hover for the full description and shortcut. All preferences
+are stored locally and restored on reload.
 
 ## Language
 
 The default language is **English**. Open the settings icon and use the
 **Language** selector to choose **English** or **한국어**.
-Tooltips, accessible labels, broadcast status and settings labels update immediately.
+Tooltips, accessible labels, broadcast status, command favorites, shortcuts modal and settings labels update immediately.
 The choice is saved locally, independently of toolbar placement, and restored on reload.
 Keyboard shortcut labels remain in English. No translation service or network access is required.
 
@@ -108,7 +157,12 @@ No dependency installation or build is required. Use Node.js 22 or newer:
 npm test
 ```
 
-Tests cover command dispatch, broadcast state decisions, toolbar placement,
+Tests cover command dispatch, broadcast state decisions, keyboard command favorites
+(unset default shortcut, toggle open/close, Esc/Up/Down/Enter handling, held-Enter repeat
+blocking, focus restoration, active vs live broadcast exactly-once insertion, newline/control-character
+blocking, no right-edge hover trigger, preserved terminal drag selection and copy),
+shortcut text color/size settings, full action shortcut customization with conflict blocking
+and legacy migration, toolbar and modal drag/keyboard reordering, toolbar placement,
 position/language persistence, language switching, invalid storage and preservation of other plugin children.
 They run without a local Hyper installation. Real Hyper integration and visual
 layout should also be checked when changing event names or CSS selectors.
