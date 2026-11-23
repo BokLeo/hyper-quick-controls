@@ -28,7 +28,7 @@ if (Test-Path -LiteralPath $pluginPath) {
     Copy-Item -LiteralPath $pluginPath -Destination "$pluginPath.backup-$stamp" -Recurse
 }
 New-Item -ItemType Directory -Path $pluginPath -Force | Out-Null
-foreach ($file in @('toolbar.js', 'package.json', 'README.md', 'LICENSE', 'ACKNOWLEDGEMENTS.md', 'index.js')) {
+foreach ($file in @('favorites.js', 'shortcuts.js', 'toolbar.js', 'package.json', 'README.md', 'LICENSE', 'ACKNOWLEDGEMENTS.md', 'index.js')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $pluginPath $file) -Force
 }
 if (-not $registered) {

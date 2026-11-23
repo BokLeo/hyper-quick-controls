@@ -40,7 +40,18 @@ function runAction(action) {
   if (typeof window.focusActiveTerm === 'function') window.focusActiveTerm();
 }
 
+const favorites = require('./favorites');
+
+function insertFavorite(command) {
+  const sessions = typeof window !== 'undefined' && window.store && typeof window.store.getState === 'function'
+    ? (window.store.getState().sessions || {})
+    : {};
+  const rpc = typeof window !== 'undefined' ? window.rpc : null;
+  return favorites.insertFavoriteCommand(command, sessions, rpc);
+}
+
 // Keep renderer styles in the renderer so UI changes don't depend on main-process reloads.
 const toolbar = require('./toolbar');
+exports.reduceUI = favorites.reduceUI;
 exports.mapHyperState = toolbar.mapHyperState;
-exports.decorateHyper = (Hyper, context) => toolbar.decorateHyper(Hyper, context, runAction);
+exports.decorateHyper = (Hyper, context) => toolbar.decorateHyper(Hyper, context, runAction, insertFavorite);
