@@ -2,6 +2,9 @@
 
 const SHORTCUT_STORAGE_KEY = 'hyper-quick-controls.favoritesShortcut.v1';
 const FAVORITES_STORAGE_KEY = 'hyper-quick-controls.favorites.v1';
+const RECENT_LIMIT = 3;
+const EXPANDED_HISTORY_LIMIT = 50;
+const HISTORY_LENGTH = 64 * 1024;
 
 // Block C0 control chars (incl. \r, \n, \t, \x03, \x04, \x1b), DEL, C1 controls (incl. 8-bit CSI \x9b),
 // and Unicode line/paragraph separators so favorites can only insert printable single-line text.
@@ -173,6 +176,53 @@ function readStoredFavorites() {
   }
 }
 
+function parseHistoryTail(text, truncated = false, expanded = false) {
+  const limit = expanded ? EXPANDED_HISTORY_LIMIT : RECENT_LIMIT;
+  const lines = text.split(/\r?\n/);
+  lines.pop(); // A concurrent append can leave the last line incomplete.
+  const recent = [];
+  let discard = truncated;
+  for (const line of lines) {
+    const continued = line.endsWith('`');
+    if (!discard && !continued && validateCommand(line).ok) {
+      recent.unshift(line);
+      if (recent.length > limit) recent.pop();
+    }
+    discard = continued;
+  }
+  return recent;
+}
+
+async function readPowerShellHistory(filename, expanded) {
+  const fs = require('fs').promises;
+  let handle;
+  try {
+    handle = await fs.open(filename, 'r');
+    const {size} = await handle.stat();
+    const length = Math.min(size, HISTORY_LENGTH);
+    const buffer = Buffer.alloc(length);
+    const {bytesRead} = await handle.read(buffer, 0, length, size - length);
+    return parseHistoryTail(buffer.toString('utf8', 0, bytesRead), length < size, expanded);
+  } catch (_) {
+    return [];
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
+function favoriteEntry({label, command}) {
+  return {label, command};
+}
+
+function saveFavorites(items) {
+  try {
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(items.map(favoriteEntry)));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function resolveFavoritesSettings(propsConfig, localShortcutOverride, isMac) {
   const hyperConfig = (propsConfig && typeof propsConfig === 'object')
     ? propsConfig
@@ -200,10 +250,11 @@ function resolveFavoritesSettings(propsConfig, localShortcutOverride, isMac) {
     ? storedFavorites
     : (hyperConfig && Array.isArray(hyperConfig.favorites) ? hyperConfig.favorites : []);
 
+  const favorites = normalizeFavorites(rawFavorites);
   return {
     shortcut,
     parsedShortcut: parseShortcut(shortcut, isMac),
-    favorites: normalizeFavorites(rawFavorites),
+    favorites,
   };
 }
 
@@ -314,6 +365,11 @@ module.exports = {
   validateCommand,
   normalizeFavorites,
   resolveFavoritesSettings,
+  parseHistoryTail,
+  RECENT_LIMIT,
+  EXPANDED_HISTORY_LIMIT,
+  readPowerShellHistory,
+  saveFavorites,
   resolveBroadcastTargets,
   insertFavoriteCommand,
   reduceUI,

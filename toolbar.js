@@ -3,6 +3,11 @@
 const {
   resolveFavoritesSettings,
   resolveBroadcastTargets,
+  normalizeFavorites,
+  RECENT_LIMIT,
+  EXPANDED_HISTORY_LIMIT,
+  saveFavorites,
+  validateCommand,
 } = require('./favorites');
 
 const {
@@ -77,6 +82,20 @@ const MESSAGES = {
     shortcutsErrorReservedConflict: (shortcut, target) => `${shortcut} conflicts with ${target}.`,
     favoritesTitle: 'Command favorites',
     favoritesList: 'Favorite commands',
+    favoritesRecent: 'Recent',
+    favoritesMore: 'More',
+    favoritesLess: 'Show less',
+    favoriteAdd: 'Add command',
+    favoriteSaveRecent: 'Add to favorites',
+    favoriteEdit: 'Edit',
+    favoriteDelete: 'Delete',
+    favoriteLabel: 'Label (optional)',
+    favoriteCommand: 'Command',
+    favoriteSave: 'Save',
+    favoriteCancel: 'Cancel',
+    favoriteInvalid: 'Enter a single-line command without control characters.',
+    favoriteDuplicate: 'This command is already in favorites.',
+    favoriteStorageError: 'Could not save favorites.',
     favoritesEmpty: 'No favorite commands configured.',
     favoritesTargetActive: () => 'Active pane · 1',
     favoritesTargetBroadcast: (count) => `Broadcast · ${count} ${count === 1 ? 'pane' : 'panes'}`,
@@ -130,6 +149,20 @@ const MESSAGES = {
     shortcutsErrorReservedConflict: (shortcut, target) => `${shortcut}은(는) ${target}과(와) 충돌합니다.`,
     favoritesTitle: '명령 즐겨찾기',
     favoritesList: '즐겨찾기 명령 목록',
+    favoritesRecent: '최근 사용',
+    favoritesMore: '더 보기',
+    favoritesLess: '접기',
+    favoriteAdd: '명령 추가',
+    favoriteSaveRecent: '즐겨찾기에 추가',
+    favoriteEdit: '수정',
+    favoriteDelete: '삭제',
+    favoriteLabel: '이름 (선택)',
+    favoriteCommand: '명령어',
+    favoriteSave: '저장',
+    favoriteCancel: '취소',
+    favoriteInvalid: '제어 문자 없이 한 줄로 명령어를 입력하세요.',
+    favoriteDuplicate: '이미 등록된 명령어입니다.',
+    favoriteStorageError: '즐겨찾기를 저장할 수 없습니다.',
     favoritesEmpty: '등록된 즐겨찾기 명령이 없습니다.',
     favoritesTargetActive: () => '활성 Pane · 1개',
     favoritesTargetBroadcast: (count) => `다중 입력 · ${count}개 Pane`,
@@ -398,10 +431,29 @@ function styles(theme, position, headerHeight, customShortcutColor, customShortc
       border: 1px solid transparent; border-radius: 4px; cursor: pointer;
     }
     .hqt-favorite-item[aria-selected="true"] { background: rgba(127,127,127,0.22); border-color: currentColor; }
+    .hqt-favorite-item:hover:not([aria-disabled="true"]):not([aria-selected="true"]) {
+      background: rgba(127,127,127,0.16);
+    }
     .hqt-favorite-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
     .hqt-favorite-label { font-size: 11px; opacity: 0.72; }
     .hqt-favorite-command { font: 12px/1.35 Consolas, "Malgun Gothic", monospace; word-break: break-all; }
     .hqt-favorites-empty { margin: 8px 0; opacity: 0.65; font-size: 11px; }
+    .hqt-favorite-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .hqt-recent-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 4px; }
+    .hqt-favorite-editor { display: grid; gap: 6px; margin: 8px 0; }
+    .hqt-favorite-editor label { display: grid; gap: 3px; font-size: 11px; }
+    .hqt-favorite-editor input, .hqt-favorite-actions button, .hqt-recent-heading button {
+      color: inherit; background: transparent; border: 1px solid var(--hqt-border);
+      border-radius: 4px; padding: 4px 7px; font: inherit;
+    }
+    .hqt-favorite-actions button, .hqt-recent-heading button { cursor: pointer; }
+    .hqt-favorite-actions button:hover:not(:disabled), .hqt-recent-heading button:hover:not(:disabled) {
+      background: rgba(127,127,127,0.22); border-color: currentColor;
+    }
+    .hqt-favorite-actions button:focus-visible, .hqt-recent-heading button:focus-visible, .hqt-favorite-item:focus-visible {
+      outline: 2px solid currentColor; outline-offset: -2px;
+    }
+    .hqt-favorite-actions button:disabled, .hqt-recent-heading button:disabled { opacity: 0.45; cursor: default; }
     .hqt-favorites-notice, .hqt-shortcuts-error { margin: 6px 0 0; font-size: 11px; color: #ff6b6b; }
     .hqt-shortcuts-note { margin: 0 0 8px; font-size: 10px; line-height: 1.4; opacity: 0.7; }
     .hqt-shortcuts-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; min-height: 0; flex: 1; }
@@ -467,7 +519,7 @@ exports.mapHyperState = (state, map) => {
   });
 };
 
-exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
+exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite, history) => {
   const h = React.createElement;
   const icon = (name) => h('svg', {
     viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5,
@@ -485,6 +537,8 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
         shortcutFontSize: readStoredShortcutFontSize(),
         shortcutOverrides: readStoredShortcutOverrides(isMac),
         toolbarOrder: readStoredToolbarOrder(),
+        recentCommands: [],
+        historyExpanded: false,
         dragItemId: null,
         dragOverItemId: null,
         settingsOpen: false,
@@ -628,13 +682,30 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
         // 4) Favorites palette keyboard navigation (only when open).
         if (event.key === 'Escape') {
           stopKeyboardEvent(event);
-          this.closeFavorites(true);
+          if (this.state.favoriteDraft) this.cancelFavoriteEdit();
+          else this.closeFavorites(true);
+          return;
+        }
+
+        const insidePalette = this.favoritesElement?.contains?.(event.target);
+        if (event.key === 'Tab' && !insidePalette) {
+          const actions = this.favoritesElement?.querySelectorAll?.('[data-favorite-action]:not(:disabled)');
+          if (actions?.length) {
+            stopKeyboardEvent(event);
+            actions[event.shiftKey ? actions.length - 1 : 0].focus();
+            return;
+          }
+        }
+        const activatingAction = insidePalette && event.target?.dataset?.favoriteAction !== undefined &&
+          (event.key === 'Enter' || event.key === ' ');
+        if (this.state.favoriteDraft || activatingAction) {
+          if (!insidePalette) stopKeyboardEvent(event);
           return;
         }
 
         if (event.key === 'ArrowDown') {
           stopKeyboardEvent(event);
-          const count = resolvedFavorites.favorites.length;
+          const count = resolvedFavorites.items.length;
           if (count > 0) {
             this.setState((state) => ({
               selectedIndex: (state.selectedIndex + 1) % count,
@@ -646,7 +717,7 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
 
         if (event.key === 'ArrowUp') {
           stopKeyboardEvent(event);
-          const count = resolvedFavorites.favorites.length;
+          const count = resolvedFavorites.items.length;
           if (count > 0) {
             this.setState((state) => ({
               selectedIndex: (state.selectedIndex - 1 + count) % count,
@@ -661,7 +732,7 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
           stopKeyboardEvent(event);
           if (event.repeat) return;
           this.suppressEnterUntilRelease = true;
-          const items = resolvedFavorites.favorites;
+          const items = resolvedFavorites.items;
           if (items.length === 0) return;
           const index = Math.min(this.state.selectedIndex, items.length - 1);
           this.selectFavorite(items[index]);
@@ -670,6 +741,10 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
     }
 
     componentDidMount() {
+      this.unsubscribeHistory = history?.subscribe(commands => {
+        const recentCommands = normalizeFavorites(commands).filter(item => !item.unsafe).slice(0, EXPANDED_HISTORY_LIMIT);
+        this.setState({recentCommands, selectedIndex: 0});
+      });
       document.addEventListener('pointerdown', this.onOutside, true);
       document.addEventListener('visibilitychange', this.onVisibilityChange);
       window.addEventListener('keydown', this.onKeyDown, true);
@@ -678,12 +753,20 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
     }
 
     componentWillUnmount() {
+      this.unsubscribeHistory?.();
       document.removeEventListener('pointerdown', this.onOutside, true);
       document.removeEventListener('visibilitychange', this.onVisibilityChange);
       window.removeEventListener('keydown', this.onKeyDown, true);
       window.removeEventListener('keyup', this.onKeyUp, true);
       window.removeEventListener('blur', this.onWindowBlur);
       this.suppressEnterUntilRelease = false;
+    }
+
+    componentDidUpdate(_previousProps, previousState) {
+      if (this.state.favoritesOpen && previousState.selectedIndex !== this.state.selectedIndex) {
+        this.favoritesElement?.querySelector?.('[role="option"][aria-selected="true"]')
+          ?.scrollIntoView?.({block: 'nearest'});
+      }
     }
 
     getResolvedShortcuts() {
@@ -702,7 +785,12 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
         favBinding ? favBinding.shortcut : '',
         !!this.props.quickControlsIsMac
       );
+      const limit = this.state.historyExpanded ? EXPANDED_HISTORY_LIMIT : RECENT_LIMIT;
+      const recent = this.state.recentCommands.slice(0, limit)
+        .map((item, index) => ({...item, id: `recent-${index}`}));
       return Object.assign({}, base, {
+        recent,
+        items: [...recent, ...base.favorites],
         shortcut: favBinding ? favBinding.shortcut : '',
         parsedShortcut: favBinding ? favBinding.parsed : null,
       });
@@ -725,13 +813,23 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
       this.previousActiveElement = insideToolbar ? this.lastTerminalElement : (active || this.lastTerminalElement);
       this.setState({
         favoritesOpen: true,
+        historyExpanded: false,
         settingsOpen: false,
         shortcutsModalOpen: false,
         recordingActionId: null,
         shortcutError: null,
         selectedIndex: 0,
         blockedNotice: false,
+        favoriteDraft: null,
+        favoriteError: null,
       });
+      history?.refresh();
+    }
+
+    toggleHistory() {
+      const historyExpanded = !this.state.historyExpanded;
+      this.setState({historyExpanded, selectedIndex: 0});
+      if (historyExpanded) history?.refresh(true);
     }
 
     restoreTerminalFocus() {
@@ -751,7 +849,7 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
     }
 
     closeFavorites(restoreFocus) {
-      this.setState({favoritesOpen: false, blockedNotice: false});
+      this.setState({favoritesOpen: false, blockedNotice: false, favoriteDraft: null, favoriteError: null});
       if (restoreFocus) {
         this.restoreTerminalFocus();
       } else {
@@ -955,6 +1053,39 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
       this.closeFavorites(true);
     }
 
+    editFavorite(item) {
+      const favoriteDraft = item
+        ? {id: item.id, label: item.label, command: item.command}
+        : {id: null, label: '', command: ''};
+      this.setState({favoriteDraft, favoriteError: null});
+    }
+
+    cancelFavoriteEdit() {
+      this.setState({favoriteDraft: null, favoriteError: null}, () => this.favoritesElement?.focus?.());
+    }
+
+    changeFavorites(item, remove = false) {
+      const {favorites} = this.getFavoritesSettings();
+      const rest = favorites.filter(favorite => favorite.id !== item.id);
+      if (!remove && !validateCommand(item.command).ok) {
+        this.setState({favoriteError: 'favoriteInvalid'});
+        return;
+      }
+      if (!remove && rest.some(favorite => favorite.command === item.command)) {
+        this.setState({favoriteError: 'favoriteDuplicate'});
+        return;
+      }
+      const next = remove ? rest : favorites.some(favorite => favorite.id === item.id)
+        ? favorites.map(favorite => favorite.id === item.id ? item : favorite)
+        : [...favorites, item];
+      if (!saveFavorites(next)) {
+        this.setState({favoriteError: 'favoriteStorageError'});
+        return;
+      }
+      this.setState({selectedIndex: 0});
+      this.cancelFavoriteEdit();
+    }
+
     run(action) { runAction(action); }
 
     t(key) { return MESSAGES[this.state.language][key]; }
@@ -1059,8 +1190,14 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
       if (!this.state.favoritesOpen) return null;
       const mode = this.props.quickControlsFavoritesTargetMode || 'none';
       const targetCount = this.props.quickControlsFavoritesTargetCount || 0;
-      const items = resolvedFavorites.favorites;
+      const items = resolvedFavorites.items;
       const selectedIndex = items.length > 0 ? Math.min(this.state.selectedIndex, items.length - 1) : 0;
+      const selected = items[selectedIndex];
+      const selectedRecent = selectedIndex < resolvedFavorites.recent.length;
+      const draft = this.state.favoriteDraft;
+      const action = (key, onClick, disabled = false) => h('button', {
+        key, type: 'button', 'data-favorite-action': '', disabled, onClick,
+      }, this.t(key));
       const targetBadge = this.formatTargetBadge(mode, targetCount);
 
       return h('div', {
@@ -1068,6 +1205,7 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
         role: 'dialog',
         'aria-label': this.t('favoritesTitle'),
         lang: this.state.language,
+        tabIndex: -1,
         ref: (element) => { this.favoritesElement = element; },
       },
       h('div', {className: 'hqt-favorites-header'},
@@ -1077,9 +1215,23 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
           'data-target-mode': mode,
           'data-target-count': targetCount,
         }, targetBadge)),
+      resolvedFavorites.recent.length > 0
+        ? h('div', {className: 'hqt-recent-heading'},
+          h('span', {className: 'hqt-favorites-title'}, this.t('favoritesRecent')),
+          h('button', {
+            type: 'button', 'data-favorite-action': '', 'aria-expanded': this.state.historyExpanded,
+            'aria-controls': 'hqt-favorite-history-list', disabled: !!draft,
+            onClick: () => this.toggleHistory(),
+          }, this.t(this.state.historyExpanded ? 'favoritesLess' : 'favoritesMore')))
+        : null,
       items.length > 0
-        ? h('div', {className: 'hqt-favorites-list', role: 'listbox', 'aria-label': this.t('favoritesList')},
-          ...items.map((item, index) => h('button', {
+        ? h('div', {id: 'hqt-favorite-history-list', className: 'hqt-favorites-list', role: 'listbox', 'aria-label': this.t('favoritesList')},
+          ...items.flatMap((item, index) => [
+            ...(resolvedFavorites.recent.length && index === resolvedFavorites.recent.length
+              ? [h('div', {key: `heading-${index}`, className: 'hqt-favorites-title', role: 'presentation'},
+                this.t('favoritesTitle'))]
+              : []),
+            h('button', {
             key: item.id,
             type: 'button',
             className: 'hqt-favorite-item',
@@ -1089,13 +1241,46 @@ exports.decorateHyper = (Hyper, {React}, runAction, insertFavorite) => {
             'data-index': index,
             onMouseDown: (event) => event.preventDefault(),
             onClick: () => {
+              if (this.state.favoriteDraft) return;
               this.setState({selectedIndex: index});
               this.selectFavorite(item);
             },
           },
           item.label ? h('span', {className: 'hqt-favorite-label'}, item.label) : null,
-          h('span', {className: 'hqt-favorite-command'}, item.unsafe ? this.t('favoritesBlockedItem') : item.command))))
+          h('span', {className: 'hqt-favorite-command'}, item.unsafe ? this.t('favoritesBlockedItem') : item.command))]))
         : h('p', {className: 'hqt-favorites-empty'}, this.t('favoritesEmpty')),
+      draft
+        ? h('form', {
+          className: 'hqt-favorite-editor',
+          onSubmit: (event) => {
+            event.preventDefault();
+            this.suppressEnterUntilRelease = true;
+            this.changeFavorites(draft);
+          },
+        },
+        ...['command', 'label'].map(field => h('label', {key: field},
+          this.t(field === 'command' ? 'favoriteCommand' : 'favoriteLabel'),
+          h('input', {
+            type: 'text', value: draft[field], autoFocus: field === 'command',
+            onChange: (event) => this.setState({
+              favoriteDraft: {...draft, [field]: event.target.value},
+              favoriteError: null,
+            }),
+          }))),
+        h('div', {className: 'hqt-favorite-actions'},
+          h('button', {type: 'submit'}, this.t('favoriteSave')),
+          action('favoriteCancel', () => this.cancelFavoriteEdit())))
+        : h('div', {className: 'hqt-favorite-actions'},
+          action('favoriteAdd', () => this.editFavorite()),
+          selected && selectedRecent
+            ? action('favoriteSaveRecent', () => this.changeFavorites(selected),
+              resolvedFavorites.favorites.some(item => item.command === selected.command))
+            : null,
+          selected && !selectedRecent ? action('favoriteEdit', () => this.editFavorite(selected)) : null,
+          selected && !selectedRecent ? action('favoriteDelete', () => this.changeFavorites(selected, true)) : null),
+      this.state.favoriteError
+        ? h('p', {className: 'hqt-favorites-notice', role: 'alert'}, this.t(this.state.favoriteError))
+        : null,
       this.state.blockedNotice
         ? h('p', {className: 'hqt-favorites-notice', role: 'alert'}, this.t('favoritesBlockedNotice'))
         : null,
