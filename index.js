@@ -2,6 +2,9 @@
 
 const CHANNEL = 'quick-controls:action';
 const HANDLER = Symbol.for('hyper-quick-controls.handler');
+const HISTORY_REQUEST = 'quick-controls:request-history';
+const HISTORY_RESPONSE = 'quick-controls:recent-history';
+const HISTORY_HANDLER = Symbol.for('hyper-quick-controls.history-handler');
 const nativeCommands = Object.freeze({
   newTab: 'tab:new',
   previousTab: 'tab:prev',
@@ -23,6 +26,19 @@ exports.onWindow = (win) => {
     win.rpc.emit(...actions[action]);
   };
   win.rpc.on(CHANNEL, win[HANDLER]);
+  if (win[HISTORY_HANDLER]) win.rpc.removeListener(HISTORY_REQUEST, win[HISTORY_HANDLER]);
+  let historyRequest = 0;
+  win[HISTORY_HANDLER] = async (expanded) => {
+    const request = ++historyRequest;
+    const commands = process.platform === 'win32' && process.env.APPDATA
+      ? await favorites.readPowerShellHistory(require('path').join(process.env.APPDATA,
+        'Microsoft', 'Windows', 'PowerShell', 'PSReadLine', 'ConsoleHost_history.txt'), expanded === true)
+      : [];
+    if (request === historyRequest && !(typeof win.isDestroyed === 'function' && win.isDestroyed())) {
+      win.rpc.emit(HISTORY_RESPONSE, commands);
+    }
+  };
+  win.rpc.on(HISTORY_REQUEST, win[HISTORY_HANDLER]);
 };
 
 function runAction(action) {
@@ -54,4 +70,13 @@ function insertFavorite(command) {
 const toolbar = require('./toolbar');
 exports.reduceUI = favorites.reduceUI;
 exports.mapHyperState = toolbar.mapHyperState;
-exports.decorateHyper = (Hyper, context) => toolbar.decorateHyper(Hyper, context, runAction, insertFavorite);
+const history = {
+  subscribe(listener) {
+    window.rpc.on?.(HISTORY_RESPONSE, listener);
+    return () => window.rpc.removeListener?.(HISTORY_RESPONSE, listener);
+  },
+  refresh(expanded = false) {
+    window.rpc.emit(HISTORY_REQUEST, expanded);
+  },
+};
+exports.decorateHyper = (Hyper, context) => toolbar.decorateHyper(Hyper, context, runAction, insertFavorite, history);

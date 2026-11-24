@@ -572,6 +572,67 @@ test('configured shortcut opens/closes palette, Esc closes, Up/Down navigates, a
   instance.componentWillUnmount();
 });
 
+test('recent commands use the newest complete single-line PowerShell entries', () => {
+  const {parseHistoryTail} = require('../favorites');
+  const history = ['echo oldest', 'echo same', 'Get-ChildItem `', '  -File',
+    'echo second', 'echo same', 'echo incomplete'].join('\r\n');
+  assert.deepEqual(parseHistoryTail(history), ['echo same', 'echo second', 'echo same']);
+  assert.deepEqual(parseHistoryTail('partial command\necho whole\n', true), ['echo whole']);
+  const longHistory = Array.from({length: 60}, (_, index) => `echo ${index}\n`).join('');
+  const expanded = parseHistoryTail(longHistory, false, true);
+  assert.equal(expanded.length, 50);
+  assert.equal(expanded[0], 'echo 59');
+  assert.equal(expanded.at(-1), 'echo 10');
+});
+
+test('recent PowerShell commands can be added without sending terminal input', () => {
+  const React = createMockReact();
+  const env = setupBrowserEnv({state: createBaseState()});
+  const config = {favorites: ['echo first', 'echo second', 'echo third', 'echo fourth']};
+  const QuickControls = plugin.decorateHyper(() => null, {React});
+  const instance = new QuickControls({...plugin.mapHyperState(env.store.getState(), {isMac: false}), quickControlsConfig: config});
+  const readRecent = () => instance.getFavoritesSettings().recent.map(item => item.command);
+  const readFavorites = () => instance.getFavoritesSettings().favorites;
+  let receiveRecent;
+  global.window.rpc.on = (_channel, listener) => { receiveRecent = listener; };
+  instance.componentDidMount();
+  instance.openFavorites();
+  assert.ok(env.rpcEmits.some(event => event.ev === 'quick-controls:request-history'));
+  receiveRecent(['echo second', 'echo fourth', 'echo third', 'echo older']);
+  assert.deepEqual(readRecent(), ['echo second', 'echo fourth', 'echo third']);
+  const findButton = label => findNodes(instance.render(), node => node.type === 'button' && getText(node) === label)[0];
+  const more = findButton('More');
+  assert.equal(more.props['aria-expanded'], false);
+  more.props.onClick();
+  assert.deepEqual(env.rpcEmits.at(-1), {ev: 'quick-controls:request-history', args: [true]});
+  assert.deepEqual(readRecent(), ['echo second', 'echo fourth', 'echo third', 'echo older']);
+  const less = findButton('Show less');
+  assert.equal(less.props['aria-expanded'], true);
+  less.props.onClick();
+  assert.deepEqual(readRecent(), ['echo second', 'echo fourth', 'echo third']);
+
+  instance.changeFavorites(readFavorites()[1], true);
+  assert.equal(readFavorites().some(item => item.command === 'echo second'), false);
+  assert.equal(readRecent()[0], 'echo second');
+  instance.openFavorites();
+  const addRecent = findNodes(instance.render(), node => node.type === 'button' && getText(node) === 'Add to favorites')[0];
+  assert.equal(addRecent.props.disabled, false);
+  addRecent.props.onClick();
+  assert.equal(readFavorites().at(-1).command, 'echo second');
+
+  instance.changeFavorites({...readFavorites()[0], label: 'Renamed', command: 'echo edited'});
+  instance.changeFavorites({label: 'New', command: 'echo new'});
+  instance.changeFavorites({command: 'echo new'});
+  assert.equal(instance.state.favoriteError, 'favoriteDuplicate');
+  instance.changeFavorites({command: 'echo invalid\nexit'});
+  assert.equal(instance.state.favoriteError, 'favoriteInvalid');
+  const reopened = new QuickControls(instance.props);
+  assert.equal(reopened.getFavoritesSettings().favorites[0].label, 'Renamed');
+  assert.equal(reopened.getFavoritesSettings().favorites.at(-1).command, 'echo new');
+  assert.equal(env.rpcEmits.filter(event => event.ev === 'data').length, 0);
+  instance.componentWillUnmount();
+});
+
 test('broadcast on: palette displays live broadcast mode & count and sends exactly once per live pane without duplicate broadcast', () => {
   const React = createMockReact();
   const env = setupBrowserEnv({
@@ -1544,7 +1605,7 @@ test('toolbar and shortcut modal support drag-and-drop and keyboard reordering w
 
   // Accidental trailing click on broadcastToggle after drag does NOT toggle broadcast!
   bcastToolbarBtn.props.onClick();
-  assert.equal(env.rpcEmits.length, 0);
+  assert.equal(env.rpcEmits.filter(event => event.ev !== 'quick-controls:request-history').length, 0);
 
   assert.equal(instance.state.toolbarOrder[0], 'favoritesToggle');
   assert.equal(instance.state.toolbarOrder[1], 'broadcastToggle');
